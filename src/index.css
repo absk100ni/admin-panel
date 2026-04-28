@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { font-family: 'Inter', system-ui, sans-serif; }
+
+.stat-card { @apply bg-white rounded-xl border border-gray-100 p-6 shadow-sm hover:shadow-md transition-shadow; }
+.table-header { @apply text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider border-b; }
+.table-cell { @apply py-3 px-4 text-sm text-gray-700 border-b border-gray-50; }
+.badge { @apply px-2.5 py-0.5 rounded-full text-xs font-medium; }
+.badge-green { @apply bg-green-100 text-green-800; }
+.badge-yellow { @apply bg-yellow-100 text-yellow-800; }
+.badge-blue { @apply bg-blue-100 text-blue-800; }
+.badge-red { @apply bg-red-100 text-red-800; }
+.badge-gray { @apply bg-gray-100 text-gray-800; }
+.badge-purple { @apply bg-purple-100 text-purple-800; }
