@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Upload, Download, RefreshCw, Trash2, Edit, Package } from 'lucide-react';
+import { Search, Plus, Upload, Download, RefreshCw, Trash2, Package, Image, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 
@@ -9,8 +9,16 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', category: '', price: '', stock: '', sku: '', tags: '', thumbnail: '' });
+  const [form, setForm] = useState({
+    name: '', description: '', category: '', price: '', compare_at_price: '',
+    stock: '', sku: '', tags: '', weight: '',
+  });
+  const [thumbnail, setThumbnail] = useState('');
+  const [images, setImages] = useState<string[]>([]);
+  const [imageUploading, setImageUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLInputElement>(null);
+  const multiImgRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     setLoading(true);
@@ -22,6 +30,7 @@ export default function ProductsPage() {
 
   useEffect(() => { load(); }, []);
 
+  // ========== CSV UPLOAD ==========
   const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -32,6 +41,7 @@ export default function ProductsPage() {
       formData.append('file', file);
       const res = await api.post('/admin/products/upload-csv', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       toast.success(`${res.data.created} products uploaded, ${res.data.failed} failed`);
+      if (res.data.errors?.length) res.data.errors.slice(0, 3).forEach((e: string) => toast.error(e));
       load();
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Upload failed');
@@ -45,20 +55,72 @@ export default function ProductsPage() {
     window.open(`${api.defaults.baseURL}/admin/products/export-csv`, '_blank');
   };
 
+  // ========== IMAGE UPLOAD ==========
+  const uploadImage = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await api.post('/admin/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return res.data.public_url;
+  };
+
+  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB per image'); return; }
+    setImageUploading(true);
+    try {
+      const url = await uploadImage(file);
+      setThumbnail(url);
+      toast.success('Thumbnail uploaded!');
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Image upload failed');
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  const handleMultiImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    setImageUploading(true);
+    const newImages: string[] = [];
+    for (let i = 0; i < files.length && i < 6; i++) {
+      if (files[i].size > 5 * 1024 * 1024) { toast.error(`${files[i].name} too large (max 5MB)`); continue; }
+      try {
+        const url = await uploadImage(files[i]);
+        newImages.push(url);
+      } catch { toast.error(`Failed to upload ${files[i].name}`); }
+    }
+    setImages([...images, ...newImages]);
+    if (newImages.length) toast.success(`${newImages.length} images uploaded!`);
+    setImageUploading(false);
+    if (multiImgRef.current) multiImgRef.current.value = '';
+  };
+
+  // ========== CREATE PRODUCT ==========
   const handleCreate = async () => {
-    if (!form.name || !form.price) { toast.error('Name and price required'); return; }
+    if (!form.name || !form.price) { toast.error('Name and price are required'); return; }
     try {
       await api.post('/admin/products', {
-        name: form.name, description: form.description, category: form.category,
-        price: parseInt(form.price) * 100, stock: parseInt(form.stock) || 100,
-        sku: form.sku, tags: form.tags ? form.tags.split(',').map(t => t.trim()) : [],
-        thumbnail: form.thumbnail,
+        name: form.name,
+        description: form.description,
+        category: form.category,
+        price: Math.round(parseFloat(form.price) * 100),
+        compare_at_price: form.compare_at_price ? Math.round(parseFloat(form.compare_at_price) * 100) : 0,
+        stock: parseInt(form.stock) || 100,
+        weight: parseInt(form.weight) || 0,
+        sku: form.sku,
+        tags: form.tags ? form.tags.split(',').map(t => t.trim()) : [],
+        thumbnail: thumbnail,
+        images: images,
       });
       toast.success('Product created!');
       setShowForm(false);
-      setForm({ name: '', description: '', category: '', price: '', stock: '', sku: '', tags: '', thumbnail: '' });
+      setForm({ name: '', description: '', category: '', price: '', compare_at_price: '', stock: '', sku: '', tags: '', weight: '' });
+      setThumbnail('');
+      setImages([]);
       load();
-    } catch (err: any) { toast.error(err.response?.data?.error || 'Failed'); }
+    } catch (err: any) { toast.error(err.response?.data?.error || 'Failed to create product'); }
   };
 
   const handleDelete = async (id: string) => {
@@ -96,22 +158,116 @@ export default function ProductsPage() {
         <strong>CSV Format:</strong> name, price (paise), category, description, sku, stock, weight, tags (pipe-separated), thumbnail, images (pipe-separated), compare_at_price
       </div>
 
-      {/* Quick add form */}
+      {/* ========== ADD PRODUCT FORM (with Image Upload) ========== */}
       {showForm && (
-        <div className="bg-white rounded-xl border p-4 mb-6 shadow-sm">
-          <h3 className="font-semibold mb-3">Quick Add Product</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <input className="border rounded-lg px-3 py-2 text-sm" placeholder="Product Name *" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-            <input className="border rounded-lg px-3 py-2 text-sm" placeholder="Price (₹) *" type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
-            <input className="border rounded-lg px-3 py-2 text-sm" placeholder="Category" value={form.category} onChange={e => setForm({...form, category: e.target.value})} />
-            <input className="border rounded-lg px-3 py-2 text-sm" placeholder="SKU" value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} />
-            <input className="border rounded-lg px-3 py-2 text-sm" placeholder="Stock" type="number" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} />
-            <input className="border rounded-lg px-3 py-2 text-sm" placeholder="Tags (comma sep)" value={form.tags} onChange={e => setForm({...form, tags: e.target.value})} />
-            <input className="border rounded-lg px-3 py-2 text-sm col-span-2" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+        <div className="bg-white rounded-xl border p-6 mb-6 shadow-sm">
+          <h3 className="font-bold text-lg mb-4">Add New Product</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Left: Product Details */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Product Name *</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g., iPhone 15 Pro Max" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Selling Price (₹) *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1499" type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">MRP (₹) — strikethrough</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1999" type="number" value={form.compare_at_price} onChange={e => setForm({...form, compare_at_price: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Smartphones" value={form.category} onChange={e => setForm({...form, category: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">SKU (auto if empty)</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Auto-generated" value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="100" type="number" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Weight (grams)</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="500" type="number" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Tags (comma separated)</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="electronics, bestseller, new" value={form.tags} onChange={e => setForm({...form, tags: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                <textarea className="w-full border rounded-lg px-3 py-2 text-sm h-20 resize-none" placeholder="Product description..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+              </div>
+            </div>
+
+            {/* Right: Image Upload */}
+            <div className="space-y-4">
+              {/* Thumbnail */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-2">Main Thumbnail *</label>
+                <input ref={imgRef} type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" />
+                {thumbnail ? (
+                  <div className="relative w-full h-40 rounded-xl border-2 border-blue-200 overflow-hidden group">
+                    <img src={thumbnail} className="w-full h-full object-cover" />
+                    <button onClick={() => setThumbnail('')}
+                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => imgRef.current?.click()}
+                    className="w-full h-40 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center gap-2 hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                    {imageUploading ? <Loader2 className="w-8 h-8 text-blue-500 animate-spin" /> : <Image className="w-8 h-8 text-gray-400" />}
+                    <span className="text-xs text-gray-500">{imageUploading ? 'Uploading...' : 'Click to upload thumbnail'}</span>
+                    <span className="text-[10px] text-gray-400">JPG, PNG, WebP • Max 5MB</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Gallery Images */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-2">Gallery Images (up to 6)</label>
+                <input ref={multiImgRef} type="file" accept="image/*" multiple onChange={handleMultiImageUpload} className="hidden" />
+                <div className="grid grid-cols-3 gap-2">
+                  {images.map((img, i) => (
+                    <div key={i} className="relative h-20 rounded-lg border overflow-hidden group">
+                      <img src={img} className="w-full h-full object-cover" />
+                      <button onClick={() => setImages(images.filter((_, idx) => idx !== i))}
+                        className="absolute top-1 right-1 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {images.length < 6 && (
+                    <button onClick={() => multiImgRef.current?.click()}
+                      className="h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                      {imageUploading ? <Loader2 className="w-5 h-5 text-blue-500 animate-spin" /> : <Plus className="w-5 h-5 text-gray-400" />}
+                      <span className="text-[10px] text-gray-400 mt-0.5">Add</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-2 mt-3">
-            <button onClick={handleCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Create</button>
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">Cancel</button>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 mt-6 pt-4 border-t">
+            <button onClick={handleCreate} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+              Create Product
+            </button>
+            <button onClick={() => { setShowForm(false); setThumbnail(''); setImages([]); }} className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200">
+              Cancel
+            </button>
           </div>
         </div>
       )}
