@@ -1,44 +1,19 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, Users, ShoppingBag, Package, TrendingUp, TrendingDown, ArrowUpRight } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { getOrders, getUsers } from '../services/api';
+import { getDashboardStats, getRevenueData, getOrders } from '../services/api';
 
-const COLORS = ['#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444'];
-
-// Mock data for charts (replace with real API data)
-const revenueData = [
-  { month: 'Jan', revenue: 12400 }, { month: 'Feb', revenue: 18200 },
-  { month: 'Mar', revenue: 22800 }, { month: 'Apr', revenue: 19600 },
-  { month: 'May', revenue: 28400 }, { month: 'Jun', revenue: 34200 },
-  { month: 'Jul', revenue: 31800 },
-];
-
-const ordersByStatus = [
-  { name: 'Placed', value: 35 }, { name: 'Processing', value: 25 },
-  { name: 'Shipped', value: 20 }, { name: 'Delivered', value: 15 },
-  { name: 'Cancelled', value: 5 },
-];
-
-const dailyOrders = [
-  { day: 'Mon', orders: 12 }, { day: 'Tue', orders: 19 }, { day: 'Wed', orders: 15 },
-  { day: 'Thu', orders: 22 }, { day: 'Fri', orders: 28 }, { day: 'Sat', orders: 35 },
-  { day: 'Sun', orders: 18 },
-];
+const COLORS = ['#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#6366f1'];
 
 interface StatCardProps {
-  title: string; value: string; change: string; positive: boolean;
-  icon: React.ReactNode; color: string;
+  title: string; value: string; icon: React.ReactNode; color: string;
 }
 
-function StatCard({ title, value, change, positive, icon, color }: StatCardProps) {
+function StatCard({ title, value, icon, color }: StatCardProps) {
   return (
     <div className="stat-card">
       <div className="flex items-center justify-between mb-4">
         <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>{icon}</div>
-        <div className={`flex items-center gap-1 text-sm font-medium ${positive ? 'text-green-600' : 'text-red-500'}`}>
-          {positive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-          {change}
-        </div>
       </div>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       <p className="text-sm text-gray-500 mt-1">{title}</p>
@@ -47,20 +22,49 @@ function StatCard({ title, value, change, positive, icon, color }: StatCardProps
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState({ users: 0, orders: 0, revenue: 0 });
+  const [stats, setStats] = useState({ total_users: 0, total_orders: 0, total_revenue: 0, total_products: 0 });
+  const [revenueData, setRevenueData] = useState<any[]>([]);
+  const [statusBreakdown, setStatusBreakdown] = useState<any[]>([]);
+  const [topProducts, setTopProducts] = useState<any[]>([]);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
-      getUsers().catch(() => ({ data: { users: [], total: 0 } })),
-      getOrders().catch(() => ({ data: { orders: [], total: 0 } })),
-    ]).then(([usersRes, ordersRes]) => {
-      const users = usersRes.data.users || [];
-      const orders = ordersRes.data.orders || [];
-      const revenue = orders.reduce((sum: number, o: any) => sum + (o.price || 0), 0);
-      setStats({ users: users.length, orders: orders.length, revenue });
-      setRecentOrders(orders.slice(0, 5));
+      getDashboardStats().catch(() => ({ data: {} })),
+      getRevenueData().catch(() => ({ data: {} })),
+      getOrders({ limit: 5 }).catch(() => ({ data: { orders: [] } })),
+    ]).then(([statsRes, revenueRes, ordersRes]) => {
+      // Stats from /admin/stats
+      const s = statsRes.data || {};
+      setStats({
+        total_users: s.total_users || 0,
+        total_orders: s.total_orders || 0,
+        total_revenue: s.total_revenue || 0,
+        total_products: s.total_products || 0,
+      });
+
+      // Revenue analytics from /admin/analytics/revenue
+      const rev = revenueRes.data || {};
+      if (rev.daily_revenue?.length) {
+        setRevenueData(rev.daily_revenue.map((d: any) => ({
+          date: d.date?.slice(5) || d.date, // show MM-DD
+          revenue: (d.revenue || 0) / 100, // paise to rupees for chart
+        })));
+      }
+      if (rev.status_breakdown) {
+        const sb = Object.entries(rev.status_breakdown).map(([name, value]) => ({
+          name, value: value as number,
+        }));
+        setStatusBreakdown(sb);
+      }
+      if (rev.top_products?.length) {
+        setTopProducts(rev.top_products);
+      }
+
+      // Recent orders
+      setRecentOrders(ordersRes.data.orders?.slice(0, 5) || []);
       setLoading(false);
     });
   }, []);
@@ -69,6 +73,7 @@ export default function DashboardPage() {
     const map: Record<string, string> = {
       placed: 'badge-yellow', confirmed: 'badge-blue', processing: 'badge-purple',
       shipped: 'badge-blue', delivered: 'badge-green', cancelled: 'badge-red',
+      pending_payment: 'badge-yellow', expired: 'badge-red',
     };
     return map[s] || 'badge-gray';
   };
@@ -82,74 +87,95 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — real data from /admin/stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Total Revenue" value={`₹${(stats.revenue / 100).toLocaleString()}`} change="+12.5%" positive icon={<DollarSign className="w-6 h-6 text-green-600" />} color="bg-green-50" />
-        <StatCard title="Total Orders" value={stats.orders.toString()} change="+8.2%" positive icon={<ShoppingBag className="w-6 h-6 text-blue-600" />} color="bg-blue-50" />
-        <StatCard title="Customers" value={stats.users.toString()} change="+15.3%" positive icon={<Users className="w-6 h-6 text-purple-600" />} color="bg-purple-50" />
-        <StatCard title="Products" value="6" change="0%" positive icon={<Package className="w-6 h-6 text-amber-600" />} color="bg-amber-50" />
+        <StatCard title="Total Revenue" value={`₹${(stats.total_revenue / 100).toLocaleString('en-IN')}`} icon={<DollarSign className="w-6 h-6 text-green-600" />} color="bg-green-50" />
+        <StatCard title="Total Orders" value={stats.total_orders.toString()} icon={<ShoppingBag className="w-6 h-6 text-blue-600" />} color="bg-blue-50" />
+        <StatCard title="Customers" value={stats.total_users.toString()} icon={<Users className="w-6 h-6 text-purple-600" />} color="bg-purple-50" />
+        <StatCard title="Products" value={stats.total_products.toString()} icon={<Package className="w-6 h-6 text-amber-600" />} color="bg-amber-50" />
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Revenue Chart */}
+        {/* Revenue Chart — real data from /admin/analytics/revenue */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-          <h3 className="font-semibold text-gray-900 mb-4">Revenue Overview</h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={revenueData}>
-              <defs>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-              <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-              <Tooltip />
-              <Area type="monotone" dataKey="revenue" stroke="#0ea5e9" fillOpacity={1} fill="url(#colorRevenue)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <h3 className="font-semibold text-gray-900 mb-4">Revenue (Last 30 Days)</h3>
+          {revenueData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={revenueData}>
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" tickFormatter={v => `₹${v}`} />
+                <Tooltip formatter={(v: number) => [`₹${v.toLocaleString('en-IN')}`, 'Revenue']} />
+                <Area type="monotone" dataKey="revenue" stroke="#0ea5e9" fillOpacity={1} fill="url(#colorRevenue)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[280px] flex items-center justify-center text-gray-400 text-sm">
+              {loading ? 'Loading revenue data...' : 'No revenue data yet — orders will appear here once paid'}
+            </div>
+          )}
         </div>
 
-        {/* Order Status Pie */}
+        {/* Order Status Pie — real data from /admin/analytics/revenue status_breakdown */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
           <h3 className="font-semibold text-gray-900 mb-4">Orders by Status</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={ordersByStatus} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value">
-                {ordersByStatus.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {ordersByStatus.map((s, i) => (
-              <div key={s.name} className="flex items-center gap-1 text-xs">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                <span className="text-gray-600">{s.name}</span>
+          {statusBreakdown.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={statusBreakdown} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value">
+                    {statusBreakdown.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {statusBreakdown.map((s, i) => (
+                  <div key={s.name} className="flex items-center gap-1 text-xs">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                    <span className="text-gray-600 capitalize">{s.name} ({s.value})</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+              {loading ? 'Loading...' : 'No orders yet'}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Daily Orders Bar Chart */}
+      {/* Top Products + Recent Orders */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Products bar chart — real data from /admin/analytics/revenue */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-          <h3 className="font-semibold text-gray-900 mb-4">Daily Orders (This Week)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={dailyOrders}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="day" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-              <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
-              <Tooltip />
-              <Bar dataKey="orders" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <h3 className="font-semibold text-gray-900 mb-4">Top Products by Quantity Sold</h3>
+          {topProducts.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={topProducts}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                <YAxis tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                <Tooltip />
+                <Bar dataKey="quantity" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+              {loading ? 'Loading...' : 'No sales data yet — top products will appear once orders are paid'}
+            </div>
+          )}
         </div>
 
-        {/* Recent Orders */}
+        {/* Recent Orders — real data */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900">Recent Orders</h3>
@@ -158,16 +184,16 @@ export default function DashboardPage() {
             </a>
           </div>
           <div className="space-y-3">
-            {recentOrders.length === 0 && <p className="text-sm text-gray-400">No orders yet</p>}
+            {recentOrders.length === 0 && <p className="text-sm text-gray-400">{loading ? 'Loading...' : 'No orders yet'}</p>}
             {recentOrders.map((order: any) => (
               <div key={order.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-900">#{order.id?.slice(0, 8)}</p>
-                  <p className="text-xs text-gray-500">{order.tshirt_color} {order.tshirt_type}</p>
+                  <p className="text-xs text-gray-500">{order.items?.[0]?.name || order.shipping_address?.name || 'N/A'}</p>
                 </div>
                 <div className="text-right">
                   <span className={`badge ${statusBadge(order.status)}`}>{order.status}</span>
-                  <p className="text-xs text-gray-500 mt-1">₹{((order.price || 0) / 100).toFixed(0)}</p>
+                  <p className="text-xs text-gray-500 mt-1">₹{((order.total || order.price || 0) / 100).toFixed(0)}</p>
                 </div>
               </div>
             ))}

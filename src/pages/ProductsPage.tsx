@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Upload, Download, RefreshCw, Trash2, Package, Image, X, Loader2 } from 'lucide-react';
+import { Search, Plus, Upload, Download, RefreshCw, Trash2, Edit2, Package, Image, X, Loader2, Link2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import api from '../services/api';
+import api, { getPresignedUrl, getCategoryTree } from '../services/api';
+import type { Category } from '../types/category';
+
+const emptyForm = {
+  name: '', description: '', category: '', price: '', compare_at_price: '',
+  stock: '', sku: '', tags: '', weight: '', advance_percent: '',
+};
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -9,13 +15,14 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    name: '', description: '', category: '', price: '', compare_at_price: '',
-    stock: '', sku: '', tags: '', weight: '',
-  });
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [form, setForm] = useState(emptyForm);
   const [thumbnail, setThumbnail] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [imageUploading, setImageUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [categoryTree, setCategoryTree] = useState<Category[]>([]);
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const multiImgRef = useRef<HTMLInputElement>(null);
@@ -30,7 +37,25 @@ export default function ProductsPage() {
 
   useEffect(() => { load(); }, []);
 
-  // ========== CSV UPLOAD ==========
+  useEffect(() => {
+    getCategoryTree()
+      .then(r => setCategoryTree(r.data.categories || []))
+      .catch(() => {});
+  }, []);
+
+  const flattenCats = (cats: Category[], prefix = ''): { id: string; label: string }[] => {
+    const result: { id: string; label: string }[] = [];
+    for (const cat of cats) {
+      const indent = prefix ? `${prefix} ${cat.name}` : cat.name;
+      result.push({ id: cat.slug || cat.id, label: indent });
+      if (cat.children?.length) {
+        flattenCats(cat.children, indent.startsWith('—') ? `—${indent}` : '—').forEach(c => result.push(c));
+      }
+    }
+    return result;
+  };
+  const categoryOptions = flattenCats(categoryTree);
+
   const handleCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -55,27 +80,46 @@ export default function ProductsPage() {
     window.open(`${api.defaults.baseURL}/admin/products/export-csv`, '_blank');
   };
 
-  // ========== IMAGE UPLOAD ==========
+  const uploadImagePresigned = async (file: File): Promise<string> => {
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) throw new Error('Only JPEG, PNG, and WebP images are allowed');
+    if (file.size > 5 * 1024 * 1024) throw new Error('File must be under 5MB');
+    const res = await getPresignedUrl(file.name, file.type);
+    const { upload_url, public_url } = res.data;
+    await fetch(upload_url, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+    return public_url;
+  };
+
   const uploadImage = async (file: File): Promise<string> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await api.post('/admin/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-    return res.data.public_url;
+    try {
+      return await uploadImagePresigned(file);
+    } catch (presignErr: any) {
+      if (presignErr.response?.status === 404 || presignErr.message?.includes('Only')) {
+        if (presignErr.message?.includes('Only') || presignErr.message?.includes('5MB')) throw presignErr;
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/admin/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        return res.data.public_url;
+      }
+      throw presignErr;
+    }
   };
 
   const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB per image'); return; }
     setImageUploading(true);
+    setUploadProgress(30);
     try {
       const url = await uploadImage(file);
       setThumbnail(url);
+      setUploadProgress(100);
       toast.success('Thumbnail uploaded!');
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Image upload failed');
+      toast.error(err.message || err.response?.data?.error || 'Image upload failed');
     } finally {
       setImageUploading(false);
+      setTimeout(() => setUploadProgress(0), 500);
     }
   };
 
@@ -85,42 +129,133 @@ export default function ProductsPage() {
     setImageUploading(true);
     const newImages: string[] = [];
     for (let i = 0; i < files.length && i < 6; i++) {
-      if (files[i].size > 5 * 1024 * 1024) { toast.error(`${files[i].name} too large (max 5MB)`); continue; }
+      setUploadProgress(Math.round(((i + 1) / files.length) * 100));
       try {
         const url = await uploadImage(files[i]);
         newImages.push(url);
-      } catch { toast.error(`Failed to upload ${files[i].name}`); }
+      } catch (err: any) {
+        toast.error(err.message || `Failed to upload ${files[i].name}`);
+      }
     }
     setImages([...images, ...newImages]);
     if (newImages.length) toast.success(`${newImages.length} images uploaded!`);
     setImageUploading(false);
+    setUploadProgress(0);
     if (multiImgRef.current) multiImgRef.current.value = '';
   };
 
-  // ========== CREATE PRODUCT ==========
-  const handleCreate = async () => {
-    if (!form.name || !form.price) { toast.error('Name and price are required'); return; }
+  // --- VALIDATION (P0-2a): reject negative/zero price, negative stock, sane parsing ---
+  const validateForm = (): string | null => {
+    if (!form.name.trim()) return 'Product name is required';
+    const price = parseFloat(form.price);
+    if (!form.price || isNaN(price) || price <= 0) return 'Price must be a positive number';
+    if (form.compare_at_price) {
+      const compare = parseFloat(form.compare_at_price);
+      if (isNaN(compare) || compare <= 0) return 'MRP must be a positive number';
+      if (compare < price) return 'MRP must be greater than or equal to selling price';
+    }
+    if (form.stock) {
+      const stock = parseInt(form.stock);
+      if (isNaN(stock) || stock < 0) return 'Stock cannot be negative';
+    }
+    if (form.weight) {
+      const weight = parseInt(form.weight);
+      if (isNaN(weight) || weight < 0) return 'Weight cannot be negative';
+    }
+    if (form.advance_percent) {
+      const adv = parseInt(form.advance_percent);
+      if (isNaN(adv) || adv < 0 || adv > 100) return 'Advance % must be 0–100';
+    }
+    return null;
+  };
+
+  /**
+   * PAISE/RUPEE ROUND-TRIP PROOF:
+   *
+   * Backend stores prices in PAISE (integer).
+   * Form displays/accepts RUPEES (decimal).
+   *
+   * CREATE: form.price (rupees) → Math.round(parseFloat(form.price) * 100) → paise to backend
+   * EDIT PREFILL: product.price (paise from backend) → (paise / 100).toString() → rupees in form
+   * EDIT SUBMIT: form.price (rupees) → Math.round(parseFloat(form.price) * 100) → paise to backend
+   *
+   * The conversion is symmetric: divide by 100 on read, multiply by 100 on write.
+   * Math.round prevents floating-point drift (e.g., 14.99 * 100 = 1498.9999... → rounds to 1499).
+   */
+  const rupeesToPaise = (rupees: string): number => Math.round(parseFloat(rupees) * 100);
+
+  const buildPayload = () => ({
+    name: form.name,
+    description: form.description,
+    category: form.category,
+    price: rupeesToPaise(form.price),
+    compare_at_price: form.compare_at_price ? rupeesToPaise(form.compare_at_price) : 0,
+    stock: parseInt(form.stock) || 100,
+    weight: parseInt(form.weight) || 0,
+    sku: form.sku,
+    tags: form.tags ? form.tags.split(',').map(t => t.trim()) : [],
+    thumbnail,
+    images,
+    advance_percent: form.advance_percent ? parseInt(form.advance_percent) : null,
+  });
+
+  const handleSave = async () => {
+    const error = validateForm();
+    if (error) { toast.error(error); return; }
+
+    setSaving(true);
     try {
-      await api.post('/admin/products', {
-        name: form.name,
-        description: form.description,
-        category: form.category,
-        price: Math.round(parseFloat(form.price) * 100),
-        compare_at_price: form.compare_at_price ? Math.round(parseFloat(form.compare_at_price) * 100) : 0,
-        stock: parseInt(form.stock) || 100,
-        weight: parseInt(form.weight) || 0,
-        sku: form.sku,
-        tags: form.tags ? form.tags.split(',').map(t => t.trim()) : [],
-        thumbnail: thumbnail,
-        images: images,
-      });
-      toast.success('Product created!');
-      setShowForm(false);
-      setForm({ name: '', description: '', category: '', price: '', compare_at_price: '', stock: '', sku: '', tags: '', weight: '' });
-      setThumbnail('');
-      setImages([]);
+      const payload = buildPayload();
+      if (editingProduct) {
+        await api.put(`/admin/products/${editingProduct.id}`, payload);
+        toast.success('Product updated!');
+      } else {
+        await api.post('/admin/products', payload);
+        toast.success('Product created!');
+      }
+      closeForm();
       load();
-    } catch (err: any) { toast.error(err.response?.data?.error || 'Failed to create product'); }
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to save product');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // P0-1: Open edit form prefilled with existing product data (paise→rupees conversion)
+  const openEdit = (p: any) => {
+    setEditingProduct(p);
+    setForm({
+      name: p.name || '',
+      description: p.description || '',
+      category: p.category || '',
+      price: p.price ? (p.price / 100).toString() : '',
+      compare_at_price: p.compare_at_price ? (p.compare_at_price / 100).toString() : '',
+      stock: p.stock?.toString() || '',
+      sku: p.sku || '',
+      tags: Array.isArray(p.tags) ? p.tags.join(', ') : '',
+      weight: p.weight?.toString() || '',
+      advance_percent: p.advance_percent != null ? p.advance_percent.toString() : '',
+    });
+    setThumbnail(p.thumbnail || '');
+    setImages(p.images || []);
+    setShowForm(true);
+  };
+
+  const openCreate = () => {
+    setEditingProduct(null);
+    setForm(emptyForm);
+    setThumbnail('');
+    setImages([]);
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingProduct(null);
+    setForm(emptyForm);
+    setThumbnail('');
+    setImages([]);
   };
 
   const handleDelete = async (id: string) => {
@@ -144,7 +279,7 @@ export default function ProductsPage() {
           <button onClick={handleExport} className="flex items-center gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm hover:bg-gray-50">
             <Download className="w-4 h-4" /> Export CSV
           </button>
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+          <button onClick={openCreate} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
             <Plus className="w-4 h-4" /> Add Product
           </button>
           <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm hover:bg-gray-50">
@@ -153,18 +288,14 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* CSV format hint */}
       <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4 text-xs text-blue-700">
         <strong>CSV Format:</strong> name, price (paise), category, description, sku, stock, weight, tags (pipe-separated), thumbnail, images (pipe-separated), compare_at_price
       </div>
 
-      {/* ========== ADD PRODUCT FORM (with Image Upload) ========== */}
       {showForm && (
         <div className="bg-white rounded-xl border p-6 mb-6 shadow-sm">
-          <h3 className="font-bold text-lg mb-4">Add New Product</h3>
-
+          <h3 className="font-bold text-lg mb-4">{editingProduct ? 'Edit Product' : 'Add New Product'}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left: Product Details */}
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Product Name *</label>
@@ -173,36 +304,47 @@ export default function ProductsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Selling Price (₹) *</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1499" type="number" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1499" type="number" min="0.01" step="0.01" value={form.price} onChange={e => setForm({...form, price: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">MRP (₹) — strikethrough</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1999" type="number" value={form.compare_at_price} onChange={e => setForm({...form, compare_at_price: e.target.value})} />
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1999" type="number" min="0" step="0.01" value={form.compare_at_price} onChange={e => setForm({...form, compare_at_price: e.target.value})} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Smartphones" value={form.category} onChange={e => setForm({...form, category: e.target.value})} />
+                  <select className="w-full border rounded-lg px-3 py-2 text-sm" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                    <option value="">— Select category</option>
+                    {categoryOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">SKU (auto if empty)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">SKU {editingProduct ? '' : '(auto if empty)'}</label>
                   <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Auto-generated" value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Stock</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="100" type="number" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} />
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="100" type="number" min="0" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Weight (grams)</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="500" type="number" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} />
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Weight (g)</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="500" type="number" min="0" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Advance %</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Default 20%" type="number" min="0" max="100"
+                    value={form.advance_percent} onChange={e => setForm({...form, advance_percent: e.target.value})} />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Customer pays this % online, rest on delivery</p>
                 </div>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Tags (comma separated)</label>
-                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="electronics, bestseller, new" value={form.tags} onChange={e => setForm({...form, tags: e.target.value})} />
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="electronics, bestseller" value={form.tags} onChange={e => setForm({...form, tags: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
@@ -210,12 +352,10 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            {/* Right: Image Upload */}
             <div className="space-y-4">
-              {/* Thumbnail */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-2">Main Thumbnail *</label>
-                <input ref={imgRef} type="file" accept="image/*" onChange={handleThumbnailUpload} className="hidden" />
+                <input ref={imgRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleThumbnailUpload} className="hidden" />
                 {thumbnail ? (
                   <div className="relative w-full h-40 rounded-xl border-2 border-blue-200 overflow-hidden group">
                     <img src={thumbnail} className="w-full h-full object-cover" />
@@ -229,15 +369,19 @@ export default function ProductsPage() {
                     className="w-full h-40 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center gap-2 hover:border-blue-400 hover:bg-blue-50 transition-colors">
                     {imageUploading ? <Loader2 className="w-8 h-8 text-blue-500 animate-spin" /> : <Image className="w-8 h-8 text-gray-400" />}
                     <span className="text-xs text-gray-500">{imageUploading ? 'Uploading...' : 'Click to upload thumbnail'}</span>
-                    <span className="text-[10px] text-gray-400">JPG, PNG, WebP • Max 5MB</span>
+                    <span className="text-[10px] text-gray-400">JPEG, PNG, WebP • Max 5MB</span>
                   </button>
+                )}
+                {uploadProgress > 0 && uploadProgress < 100 && (
+                  <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+                  </div>
                 )}
               </div>
 
-              {/* Gallery Images */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-2">Gallery Images (up to 6)</label>
-                <input ref={multiImgRef} type="file" accept="image/*" multiple onChange={handleMultiImageUpload} className="hidden" />
+                <input ref={multiImgRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleMultiImageUpload} className="hidden" />
                 <div className="grid grid-cols-3 gap-2">
                   {images.map((img, i) => (
                     <div key={i} className="relative h-20 rounded-lg border overflow-hidden group">
@@ -260,26 +404,25 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex gap-3 mt-6 pt-4 border-t">
-            <button onClick={handleCreate} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-              Create Product
+            <button onClick={handleSave} disabled={saving}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {saving ? 'Saving...' : editingProduct ? 'Update Product' : 'Create Product'}
             </button>
-            <button onClick={() => { setShowForm(false); setThumbnail(''); setImages([]); }} className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200">
+            <button onClick={closeForm} className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200">
               Cancel
             </button>
           </div>
         </div>
       )}
 
-      {/* Search */}
       <div className="relative max-w-sm mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" placeholder="Search products..."
-          value={search} onChange={e => { setSearch(e.target.value); }} onKeyDown={e => e.key === 'Enter' && load()} />
+          value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && load()} />
       </div>
 
-      {/* Products table */}
       <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -287,6 +430,7 @@ export default function ProductsPage() {
               <th className="table-header">Product</th>
               <th className="table-header">Category</th>
               <th className="table-header">Price</th>
+              <th className="table-header">Advance</th>
               <th className="table-header">Stock</th>
               <th className="table-header">SKU</th>
               <th className="table-header">Status</th>
@@ -303,20 +447,36 @@ export default function ProductsPage() {
                   </div>
                 </td>
                 <td className="table-cell text-sm">{p.category || '—'}</td>
-                <td className="table-cell font-medium">₹{((p.price || 0) / 100).toFixed(0)}{p.compare_at_price > 0 && <span className="text-xs text-gray-400 line-through ml-1">₹{(p.compare_at_price / 100).toFixed(0)}</span>}</td>
+                <td className="table-cell font-medium">₹{((p.price || 0) / 100).toLocaleString('en-IN')}{p.compare_at_price > 0 && <span className="text-xs text-gray-400 line-through ml-1">₹{(p.compare_at_price / 100).toLocaleString('en-IN')}</span>}</td>
+                <td className="table-cell text-sm">{p.advance_percent != null ? `${p.advance_percent}%` : '20% (default)'}</td>
                 <td className="table-cell"><span className={`badge ${p.stock > 20 ? 'badge-green' : p.stock > 0 ? 'badge-yellow' : 'badge-red'}`}>{p.stock}</span></td>
                 <td className="table-cell text-xs font-mono">{p.sku || '—'}</td>
                 <td className="table-cell"><span className={`badge ${p.is_active ? 'badge-green' : 'badge-red'}`}>{p.is_active ? 'Active' : 'Inactive'}</span></td>
                 <td className="table-cell">
-                  <button onClick={() => handleDelete(p.id)} className="p-1 text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => openEdit(p)} className="p-1 text-gray-400 hover:text-primary-600" title="Edit product">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const base = import.meta.env.VITE_STORE_URL || 'http://localhost:3000';
+                        navigator.clipboard.writeText(`${base}/p/${p.slug || p.id}`);
+                        toast.success('Public product link copied — paste it in your reel/video!');
+                      }}
+                      className="p-1 text-gray-400 hover:text-violet-600" title="Copy public product link (for reels/videos)">
+                      <Link2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete(p.id)} className="p-1 text-red-400 hover:text-red-600" title="Delete product">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={7} className="table-cell text-center text-gray-400 py-8">{loading ? 'Loading...' : 'No products found. Upload a CSV or add manually!'}</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={8} className="table-cell text-center text-gray-400 py-8">{loading ? 'Loading...' : 'No products found. Upload a CSV or add manually!'}</td></tr>}
           </tbody>
         </table>
       </div>
-
       <p className="text-xs text-gray-400 mt-4">{products.length} products total</p>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Users, Sparkles, Calendar } from 'lucide-react';
+import { Search, Users, Sparkles, Calendar, Loader2 } from 'lucide-react';
 import { getUsers } from '../services/api';
 
 export default function UsersPage() {
@@ -11,7 +11,13 @@ export default function UsersPage() {
     getUsers().then(r => setUsers(r.data.users || [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const filtered = users.filter(u => !search || u.phone?.includes(search) || u.id?.includes(search));
+  const filtered = users.filter(u =>
+    !search ||
+    u.phone?.includes(search) ||
+    u.id?.includes(search) ||
+    u.name?.toLowerCase().includes(search.toLowerCase()) ||
+    u.email?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div>
@@ -21,27 +27,35 @@ export default function UsersPage() {
       </div>
       <div className="relative max-w-sm mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" placeholder="Search by phone..."
+        <input className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" placeholder="Search by name, phone, or email..."
           value={search} onChange={e => setSearch(e.target.value)} />
       </div>
       <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
         <table className="w-full">
           <thead><tr className="bg-gray-50">
             <th className="table-header">User ID</th><th className="table-header">Phone</th>
-            <th className="table-header">Credits</th><th className="table-header">Role</th>
-            <th className="table-header">Joined</th>
+            <th className="table-header">Name</th><th className="table-header">Credits</th>
+            <th className="table-header">Role</th><th className="table-header">Joined</th>
           </tr></thead>
           <tbody>
-            {filtered.map(u => (
+            {loading ? (
+              <tr><td colSpan={6} className="table-cell text-center py-8">
+                <div className="flex items-center justify-center gap-2 text-gray-400">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                </div>
+              </td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={6} className="table-cell text-center text-gray-400 py-8">No users found</td></tr>
+            ) : filtered.map(u => (
               <tr key={u.id} className="hover:bg-gray-50">
                 <td className="table-cell font-mono text-xs">{u.id?.slice(0, 8)}</td>
                 <td className="table-cell font-medium">{u.phone}</td>
-                <td className="table-cell"><span className="flex items-center gap-1"><Sparkles className="w-3 h-3 text-amber-500" />{u.credits}</span></td>
+                <td className="table-cell">{u.name || '—'}</td>
+                <td className="table-cell"><span className="flex items-center gap-1"><Sparkles className="w-3 h-3 text-amber-500" />{u.credits ?? 0}</span></td>
                 <td className="table-cell"><span className={`badge ${u.is_admin ? 'badge-purple' : 'badge-gray'}`}>{u.is_admin ? 'Admin' : 'User'}</span></td>
                 <td className="table-cell text-xs flex items-center gap-1"><Calendar className="w-3 h-3" />{u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : ''}</td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={5} className="table-cell text-center text-gray-400 py-8">No users found</td></tr>}
           </tbody>
         </table>
       </div>
