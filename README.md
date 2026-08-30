@@ -1,79 +1,40 @@
-# 📊 Admin Panel — E-Commerce Dashboard
+# 📊 LucubraElec — Admin Panel
 
-A React + TypeScript admin dashboard for managing the e-commerce platform. Products CRUD, order management, user list, inventory tracking, and revenue analytics.
+React + TypeScript dashboard for managing the LucubraElec store: products, orders, shipping, refunds, coupons, inventory, users.
 
 ## 🚀 Quick Start
 
 ```bash
-cd admin-panel
 npm install
 npm run dev
 ```
 
-Dashboard starts on **http://localhost:5174** (needs backend on port 8080)
+Starts on **http://localhost:3001** (needs backend on :8080). Local dev login: see backend seed.
 
-## ✅ What's Done
+## ✅ Feature Status
 
 | Feature | Status | Details |
 |---------|--------|---------|
-| Dashboard | ✅ Complete | Stats cards (revenue, orders, users, products), quick overview |
-| Products | ✅ Complete | CRUD — create, edit, delete products with images, variants, pricing |
-| Orders | ✅ Complete | List all orders, filter by status, update order status |
-| Users | ✅ Complete | List all registered users |
-| Inventory | ✅ Complete | Stock levels, low stock alerts |
-| Revenue | ✅ Complete | Revenue overview with stats |
-| Sidebar Nav | ✅ Complete | Collapsible sidebar with all sections |
-| Responsive | ✅ Complete | Works on desktop and tablet |
+| Dashboard | ✅ | Real stats from backend (no fake data) |
+| Products | ✅ | Create + **edit** (paise↔rupee round-trip safe), negative-value guards, image upload, per-product public copy-link button (`/p/{slug}`) |
+| Orders | ✅ | Server-side search (`ORD-…`, `#uuid`, partial, any case), status tabs matching the backend state machine, payment filter (incl. `refund_pending`), pending/expired filters |
+| Order detail | ✅ | Items, address, payment breakdown, **"paid · COD due"** badge for partial orders, **GUEST** badge for guest orders |
+| Status updates | ✅ | Dropdown restricted to legal next states; backend 400s surfaced as toasts |
+| Shipping | ✅ | Create Shipment → Shipmozo push + auto-assign (real AWB when keys configured; mock otherwise), tracking timeline |
+| Refunds | ✅ | Full + partial (validated 0 < amount ≤ paid) via Razorpay |
+| Coupons / Returns / Users / Inventory | ✅ | CRUD, return approval (auto-refund), real stock from products |
 
-## ❌ What's Left To Do
+## ❌ Left for launch
 
-### 🔴 Must Have
-- [ ] **Admin Auth** — Currently uses same JWT as users. Need admin role check or separate admin login
-- [ ] **Backend URL** — Update API base URL if backend is not on localhost:8080
-- [ ] **Order Detail View** — Click into order to see full details, items, address, payment status
+- [ ] Deploy to Vercel + prod env vars
+- [ ] Optional at volume: bulk-ship button, COD remittance reconciliation report
 
-### 🟡 Should Have
-- [ ] **Revenue Charts** — Line/bar charts for daily/weekly/monthly revenue (Chart.js or Recharts)
-- [ ] **Product Image Upload** — Image upload directly from admin (S3 integration)
-- [ ] **Coupon Management** — Create/edit/delete coupons from admin UI
-- [ ] **Order Status SMS** — Trigger SMS when changing order status (backend already sends it)
-- [ ] **Bulk Actions** — Select multiple products/orders for bulk operations
-- [ ] **Export to CSV** — Export orders, products, users as CSV/Excel
-- [ ] **Real-time Updates** — WebSocket for live order notifications
-- [ ] **Search & Filters** — Search products/users, date range filters for orders
+## ⚙️ Configuration
 
-### 🔵 Nice To Have
-- [ ] **Dark Mode** — Theme toggle
-- [ ] **Activity Log** — Track admin actions (who changed what)
-- [ ] **Customer Support** — View customer messages/complaints
-- [ ] **Shipment Management** — Create shipments, track AWB from admin
-- [ ] **Refund Processing** — Process refunds from admin UI
-- [ ] **Dashboard Widgets** — Customizable dashboard with drag-and-drop widgets
-- [ ] **Multi-admin Roles** — Super admin, editor, viewer roles
-
-## 🏗 Architecture
-
-```
-admin-panel/
-├── src/
-│   ├── App.tsx                    # Router + Layout
-│   ├── main.tsx                   # Entry point
-│   ├── index.css                  # Tailwind styles
-│   ├── components/
-│   │   └── common/
-│   │       └── Sidebar.tsx        # Navigation sidebar
-│   ├── pages/
-│   │   ├── DashboardPage.tsx      # Stats overview
-│   │   ├── ProductsPage.tsx       # Products CRUD
-│   │   ├── OrdersPage.tsx         # Order management
-│   │   ├── UsersPage.tsx          # User list
-│   │   ├── InventoryPage.tsx      # Stock management
-│   │   └── RevenuePage.tsx        # Revenue stats
-│   └── services/api.ts            # Axios API client
-├── tailwind.config.js
-├── vite.config.ts
-└── package.json
-```
+| Variable | Description |
+|----------|-------------|
+| VITE_API_URL | Backend API base (default http://localhost:8080/api/v1) |
+| VITE_STORE_URL | Public storefront origin (used by the product copy-link button) |
 
 ## 📄 License
 MIT
