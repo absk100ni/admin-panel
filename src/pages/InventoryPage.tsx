@@ -8,9 +8,9 @@ export default function InventoryPage() {
 
   const load = () => {
     setLoading(true);
-    api.get('/admin/products')
+    api.get('/admin/products', { params: { limit: 500 } })
       .then(r => setProducts(r.data.products || []))
-      .catch(() => api.get('/products').then(r => setProducts(r.data.products || [])).catch(() => {}))
+      .catch(() => setProducts([]))
       .finally(() => setLoading(false));
   };
 

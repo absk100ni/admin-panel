@@ -6,6 +6,7 @@ import { getRevenueData, getDashboardStats } from '../services/api';
 export default function RevenuePage() {
   const [revenueData, setRevenueData] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
+  const [revenueSummary, setRevenueSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('30d');
 
@@ -15,16 +16,18 @@ export default function RevenuePage() {
       getRevenueData(period).catch(() => ({ data: { daily: [] } })),
       getDashboardStats().catch(() => ({ data: {} })),
     ]).then(([revRes, statsRes]) => {
-      const daily = revRes.data.daily || revRes.data.data || revRes.data || [];
+      const revenue = revRes.data || {};
+      const daily = revenue.daily_revenue || revenue.daily || revenue.data || [];
       setRevenueData(Array.isArray(daily) ? daily : []);
+      setRevenueSummary(revenue);
       setStats(statsRes.data);
       setLoading(false);
     });
   }, [period]);
 
-  const totalRevenue = revenueData.reduce((s, d) => s + (d.revenue || 0), 0);
-  const totalOrders = revenueData.reduce((s, d) => s + (d.orders || d.order_count || 0), 0);
-  const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+  const totalRevenue = revenueSummary?.total_revenue ?? stats?.total_revenue ?? revenueData.reduce((sum, day) => sum + (day.revenue || 0), 0);
+  const totalOrders = revenueSummary?.total_paid_orders ?? 0;
+  const avgOrderValue = revenueSummary?.avg_order_value ?? (totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0);
 
   const formatMoney = (v: number) => `₹${(v / 100).toLocaleString('en-IN')}`;
 
