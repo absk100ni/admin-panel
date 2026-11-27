@@ -6,7 +6,7 @@ import type { Category } from '../types/category';
 
 const emptyForm = {
   name: '', description: '', category: '', price: '', compare_at_price: '',
-  stock: '', sku: '', tags: '', weight: '', advance_percent: '',
+  stock: '', sku: '', tags: '', weight: '', length_cm: '', width_cm: '', height_cm: '', gst_percent: '', hsn_code: '', advance_percent: '',
 };
 
 export default function ProductsPage() {
@@ -29,9 +29,12 @@ export default function ProductsPage() {
 
   const load = () => {
     setLoading(true);
-    api.get('/admin/products', { params: { search } })
+    api.get('/admin/products', { params: { search, limit: 500 } })
       .then(r => setProducts(r.data.products || []))
-      .catch(() => api.get('/products', { params: { search } }).then(r => setProducts(r.data.products || [])).catch(() => {}))
+      .catch((err: any) => {
+        setProducts([]);
+        toast.error(err.response?.data?.error || 'Failed to load the complete catalog');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -76,8 +79,20 @@ export default function ProductsPage() {
     }
   };
 
-  const handleExport = () => {
-    window.open(`${api.defaults.baseURL}/admin/products/export-csv`, '_blank');
+  const handleExport = async () => {
+    try {
+      const res = await api.get('/admin/products/export-csv', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'products.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Export failed');
+    }
   };
 
   const uploadImagePresigned = async (file: File): Promise<string> => {
@@ -158,10 +173,16 @@ export default function ProductsPage() {
       const stock = parseInt(form.stock);
       if (isNaN(stock) || stock < 0) return 'Stock cannot be negative';
     }
-    if (form.weight) {
-      const weight = parseInt(form.weight);
-      if (isNaN(weight) || weight < 0) return 'Weight cannot be negative';
+    if (!form.weight) return 'Shipping weight is required';
+    const weight = parseInt(form.weight, 10);
+    if (isNaN(weight) || weight <= 0) return 'Weight must be greater than 0 grams';
+    for (const [label, raw] of [['Length', form.length_cm], ['Width', form.width_cm], ['Height', form.height_cm]] as const) {
+      const value = parseInt(raw, 10);
+      if (isNaN(value) || value <= 0) return `${label} must be greater than 0 cm`;
     }
+    const gstPercent = parseInt(form.gst_percent, 10);
+    if (!Number.isInteger(gstPercent) || gstPercent <= 0 || gstPercent > 100) return 'GST percentage must be a whole number between 1 and 100';
+    if (!/^\d{4,8}$/.test(form.hsn_code)) return 'HSN code must contain 4 to 8 digits';
     if (form.advance_percent) {
       const adv = parseInt(form.advance_percent);
       if (isNaN(adv) || adv < 0 || adv > 100) return 'Advance % must be 0–100';
@@ -190,8 +211,13 @@ export default function ProductsPage() {
     category: form.category,
     price: rupeesToPaise(form.price),
     compare_at_price: form.compare_at_price ? rupeesToPaise(form.compare_at_price) : 0,
-    stock: parseInt(form.stock) || 100,
+    stock: form.stock === '' ? 100 : parseInt(form.stock, 10),
     weight: parseInt(form.weight) || 0,
+    length_cm: parseInt(form.length_cm, 10),
+    width_cm: parseInt(form.width_cm, 10),
+    height_cm: parseInt(form.height_cm, 10),
+    gst_percent: parseInt(form.gst_percent, 10),
+    hsn_code: form.hsn_code,
     sku: form.sku,
     tags: form.tags ? form.tags.split(',').map(t => t.trim()) : [],
     thumbnail,
@@ -235,6 +261,11 @@ export default function ProductsPage() {
       sku: p.sku || '',
       tags: Array.isArray(p.tags) ? p.tags.join(', ') : '',
       weight: p.weight?.toString() || '',
+      length_cm: p.length_cm?.toString() || '',
+      width_cm: p.width_cm?.toString() || '',
+      height_cm: p.height_cm?.toString() || '',
+      gst_percent: p.gst_percent?.toString() || '',
+      hsn_code: p.hsn_code || '',
       advance_percent: p.advance_percent != null ? p.advance_percent.toString() : '',
     });
     setThumbnail(p.thumbnail || '');
@@ -289,7 +320,7 @@ export default function ProductsPage() {
       </div>
 
       <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4 text-xs text-blue-700">
-        <strong>CSV Format:</strong> name, price (paise), category, description, sku, stock, weight, tags (pipe-separated), thumbnail, images (pipe-separated), compare_at_price
+        <strong>CSV Format:</strong> name, price (paise), category, description, sku, stock, weight, length_cm, width_cm, height_cm, gst_percent, hsn_code, tags (pipe-separated), thumbnail, images (pipe-separated), compare_at_price
       </div>
 
       {showForm && (
@@ -332,14 +363,38 @@ export default function ProductsPage() {
                   <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="100" type="number" min="0" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Weight (g)</label>
-                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="500" type="number" min="0" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} />
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Weight (g) *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="500" type="number" min="1" value={form.weight} onChange={e => setForm({...form, weight: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Advance %</label>
                   <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Default 20%" type="number" min="0" max="100"
                     value={form.advance_percent} onChange={e => setForm({...form, advance_percent: e.target.value})} />
                   <p className="text-[10px] text-gray-400 mt-0.5">Customer pays this % online, rest on delivery</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Package length (cm) *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" type="number" min="1" value={form.length_cm} onChange={e => setForm({...form, length_cm: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Width (cm) *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" type="number" min="1" value={form.width_cm} onChange={e => setForm({...form, width_cm: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Height (cm) *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" type="number" min="1" value={form.height_cm} onChange={e => setForm({...form, height_cm: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">GST rate (%) *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm" type="number" min="1" max="100" step="1" value={form.gst_percent} onChange={e => setForm({...form, gst_percent: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">HSN code *</label>
+                  <input className="w-full border rounded-lg px-3 py-2 text-sm font-mono" inputMode="numeric" maxLength={8} value={form.hsn_code} onChange={e => setForm({...form, hsn_code: e.target.value.replace(/\D/g, '').slice(0, 8)})} />
                 </div>
               </div>
               <div>

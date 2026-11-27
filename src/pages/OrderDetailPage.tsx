@@ -42,7 +42,7 @@ export default function OrderDetailPage() {
     if (!id) return;
     getReturns()
       .then(r => {
-        const returns = r.data.returns || r.data || [];
+        const returns = r.data.return_requests || r.data.returns || [];
         const match = returns.find((ret: any) => ret.order_id === id);
         if (match) setReturnRequest(match);
       })
@@ -50,9 +50,10 @@ export default function OrderDetailPage() {
   }, [id]);
 
   // Compute max refundable (what was paid online)
-  const maxRefundable = order?.payment_plan === 'partial' && order?.advance_amount > 0
+  const paidOnline = order?.payment_plan === 'partial' && order?.advance_amount > 0
     ? order.advance_amount
     : (order?.total || order?.price || 0);
+  const maxRefundable = Math.max(0, paidOnline - (order?.refund_amount || 0));
 
   // Pre-fill refund amount when opening dialog
   useEffect(() => {
@@ -121,7 +122,7 @@ export default function OrderDetailPage() {
   };
 
   const canShip = order && order.status === 'confirmed' && !order.shipment;
-  const canRefund = order && (order.payment_status === 'paid' || order.payment_status === 'refund_pending');
+  const canRefund = order && maxRefundable > 0 && (order.payment_status === 'paid' || order.payment_status === 'refund_pending');
 
   if (loading) {
     return (
@@ -173,7 +174,7 @@ export default function OrderDetailPage() {
                   <div className="flex-1">
                     <p className="font-medium text-sm">{item.name}</p>
                     <p className="text-xs text-gray-500">
-                      {item.variant && item.variant}
+                      {item.variant_label || item.variant || ''}
                     </p>
                   </div>
                   <div className="text-right">

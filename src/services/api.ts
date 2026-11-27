@@ -58,7 +58,7 @@ export const processRefund = (orderId: string) =>
 
 // ==================== PRODUCTS ====================
 export const getProducts = (search?: string) =>
-  api.get('/admin/products', { params: { search } });
+  api.get('/admin/products', { params: { search, limit: 500 } });
 export const createProduct = (data: any) => api.post('/admin/products', data);
 export const updateProduct = (id: string, data: any) => api.put(`/admin/products/${id}`, data);
 export const deleteProduct = (id: string) => api.delete(`/admin/products/${id}`);
@@ -84,6 +84,10 @@ export const createCategory = (data: any) => api.post('/admin/categories', data)
 export const updateCategory = (id: string, data: any) => api.put(`/admin/categories/${id}`, data);
 export const deleteCategory = (id: string) => api.delete(`/admin/categories/${id}`);
 
+// ==================== REVIEWS ====================
+export const getReviews = (approved?: boolean) => api.get('/admin/reviews', { params: approved === undefined ? undefined : { approved } });
+export const setReviewApproval = (id: string, isApproved: boolean) => api.put(`/admin/reviews/${id}/approve`, { is_approved: isApproved });
+
 // ==================== RETURNS ====================
 export const getReturns = (status?: string) =>
   api.get('/admin/returns', { params: { status } });
@@ -105,3 +109,10 @@ export const getPresignedUrl = (filename: string, content_type: string) =>
   api.post('/admin/uploads/presign', { filename, content_type });
 
 export default api;
+
+// ==================== OPERATIONS ====================
+export const getOpsStatus = () => api.get('/admin/ops/status');
+export const getOpsAnomalies = (params?: { severity?: string; event_code?: string; resource_id?: string; active?: string; page?: number; limit?: number }) =>
+  api.get('/admin/ops/anomalies', { params });
+export const getOpsAudit = (params?: { action?: string; resource_id?: string; request_id?: string; page?: number; limit?: number }) =>
+  api.get('/admin/ops/audit', { params });

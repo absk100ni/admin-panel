@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, ShoppingBag, Package, TrendingUp, Settings, LogOut, Store, Tag, Ticket, FolderTree, RotateCcw, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Package, TrendingUp, Settings, LogOut, Store, Tag, Ticket, FolderTree, RotateCcw, MessageSquare, Star, Activity } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -8,11 +8,13 @@ const navItems = [
   { path: '/categories', icon: FolderTree, label: 'Categories' },
   { path: '/orders', icon: ShoppingBag, label: 'Orders' },
   { path: '/returns', icon: RotateCcw, label: 'Returns' },
+  { path: '/reviews', icon: Star, label: 'Reviews' },
   { path: '/coupons', icon: Ticket, label: 'Coupons' },
   { path: '/messages', icon: MessageSquare, label: 'Messages' },
   { path: '/users', icon: Users, label: 'Customers' },
   { path: '/inventory', icon: Package, label: 'Inventory' },
   { path: '/revenue', icon: TrendingUp, label: 'Revenue' },
+  { path: '/operations', icon: Activity, label: 'Operations' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
