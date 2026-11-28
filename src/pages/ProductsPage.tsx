@@ -223,6 +223,7 @@ export default function ProductsPage() {
     thumbnail,
     images,
     advance_percent: form.advance_percent ? parseInt(form.advance_percent) : null,
+    version: editingProduct?.version ?? 0,
   });
 
   const handleSave = async () => {

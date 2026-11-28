@@ -51,6 +51,8 @@ export const getOrders = (params?: { status?: string; payment_status?: string; p
 export const getOrderById = (id: string) => api.get(`/admin/orders/${id}`);
 export const updateOrderStatus = (id: string, status: string, trackingId?: string) =>
   api.put(`/admin/order/${id}/status`, { status, tracking_id: trackingId });
+export const pushOrderToShipmozo = (orderId: string) =>
+  api.post(`/admin/orders/${orderId}/push-shipmozo`);
 export const createShipment = (orderId: string) =>
   api.post(`/admin/orders/${orderId}/ship`);
 export const processRefund = (orderId: string) =>
