@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Truck, Package, MapPin, CreditCard, Clock, ExternalLink, Download, Loader2, FileText, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getOrderById, createShipment, getOrderInvoice, getReturns } from '../services/api';
+import { getOrderById, pushOrderToShipmozo, getOrderInvoice, getReturns } from '../services/api';
 import api from '../services/api';
 
 const badgeMap: Record<string, string> = {
@@ -81,9 +81,9 @@ export default function OrderDetailPage() {
     if (!id) return;
     setShipping(true);
     try {
-      const res = await createShipment(id);
-      toast.success('Shipment created successfully!');
-      setOrder({ ...order, shipment: res.data.shipment, status: 'shipped' });
+      const res = await pushOrderToShipmozo(id);
+      toast.success('Order pushed to Shipmozo. Assign courier in Shipmozo dashboard.');
+      setOrder({ ...order, shipmozo_order_id: res.data.provider_order_id, shipmozo_push_status: 'awaiting_courier', status: 'processing' });
       setShowShipConfirm(false);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create shipment');
@@ -121,7 +121,7 @@ export default function OrderDetailPage() {
     }
   };
 
-  const canShip = order && order.status === 'confirmed' && !order.shipment;
+  const canShip = order && order.status === 'confirmed' && !order.shipment && !order.shipmozo_order_id;
   const canRefund = order && maxRefundable > 0 && (order.payment_status === 'paid' || order.payment_status === 'refund_pending');
 
   if (loading) {
@@ -369,8 +369,16 @@ export default function OrderDetailPage() {
             {canShip && (
               <button onClick={() => setShowShipConfirm(true)}
                 className="w-full py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 flex items-center justify-center gap-2">
-                <Truck className="w-4 h-4" /> Create Shipment
+                <Truck className="w-4 h-4" /> Push to Shipmozo
               </button>
+            )}
+
+            {order.shipmozo_order_id && !order.shipment && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-semibold">Awaiting manual courier assignment</p>
+                <p className="mt-1 font-mono text-xs">Shipmozo reference: {order.shipmozo_order_id}</p>
+                <p className="mt-1 text-xs">Open Shipmozo New orders and assign the courier there.</p>
+              </div>
             )}
 
             {order.shipment && (
@@ -394,9 +402,9 @@ export default function OrderDetailPage() {
       {showShipConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl">
-            <h3 className="font-bold text-lg mb-2">Create Shipment</h3>
+            <h3 className="font-bold text-lg mb-2">Push Order to Shipmozo</h3>
             <p className="text-sm text-gray-600 mb-4">
-              This will create a courier shipment via Shipmozo for this order.
+              This creates an unassigned order under Shipmozo New. It will not assign a courier, generate an AWB, charge shipment cost, or schedule pickup.
             </p>
             {order.cod_amount > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
@@ -407,7 +415,7 @@ export default function OrderDetailPage() {
               <button onClick={handleShip} disabled={shipping}
                 className="flex-1 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2">
                 {shipping && <Loader2 className="w-4 h-4 animate-spin" />}
-                {shipping ? 'Creating...' : 'Confirm Ship'}
+                {shipping ? 'Pushing...' : 'Push Only'}
               </button>
               <button onClick={() => setShowShipConfirm(false)}
                 className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200">

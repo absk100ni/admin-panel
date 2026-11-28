@@ -25,7 +25,7 @@ async function mockAdminApi(page: Page) {
     if (path === '/admin/orders' && method === 'GET') return json({ orders: [{ id: 'order-1', order_number: 'ORD-20001', status: 'confirmed', payment_status: 'paid', payment_plan: 'full', total: 129900, advance_amount: 129900, cod_amount: 0, refund_amount: 0, created_at: '2026-11-14T10:00:00Z', items: [{ product_id: product.id, name: product.name, quantity: 1, price: product.price }], shipping_address: { name: 'A Customer', phone: '9999999999', line1: '10 Market Road', city: 'Faridabad', state: 'Haryana', pincode: '121003' } }], total: 1 });
     if (path === '/admin/orders/order-1' && method === 'GET') return json({ id: 'order-1', order_number: 'ORD-20001', status: 'confirmed', payment_status: 'paid', payment_plan: 'full', payment_id: 'pay_1', total: 129900, advance_amount: 129900, cod_amount: 0, refund_amount: 0, created_at: '2026-11-14T10:00:00Z', items: [{ product_id: product.id, name: product.name, quantity: 1, price: product.price }], shipping_address: { name: 'A Customer', phone: '9999999999', line1: '10 Market Road', city: 'Faridabad', state: 'Haryana', pincode: '121003' } });
     if (path === '/admin/orders/order-1/refund' && method === 'POST') return json({ message: 'Refund processed', refund_id: 'rfnd_1', refund_amount: 129900 });
-    if (path === '/admin/orders/order-1/ship' && method === 'POST') return json({ id: 'shipment-1', awb: 'AWB123', courier_name: 'Test Courier', status: 'booked' }, 201);
+    if (path === '/admin/orders/order-1/push-shipmozo' && method === 'POST') return json({ status: 'awaiting_courier', provider_order_id: 'SMZ-1', message: 'Order pushed to Shipmozo' }, 201);
     if (path === '/admin/reviews' && method === 'GET') return json({ reviews: [{ id: 'review-1', product_id: product.id, user_name: 'A Customer', rating: 4, comment: 'Useful on site', is_verified: true, is_approved: false }] });
     if (path === '/admin/reviews/review-1/approve' && method === 'PUT') return json({ message: 'Review approval updated' });
     if (path === '/admin/returns' && method === 'GET') return json({ return_requests: [{ id: 'return-1', order_id: 'order-1', user_id: 'user-1', type: 'return', status: 'requested', comment: 'Damaged', items: [{ product_id: product.id, qty: 1, reason: 'Damaged' }], created_at: '2026-11-14T10:00:00Z' }] });
@@ -102,17 +102,17 @@ test('refund action sends the reviewed amount', async ({ page }) => {
   await expect.poll(() => refundAmount).toBe(129900);
 });
 
-test('shipment requires an explicit confirmation', async ({ page }) => {
+test('Shipmozo push requires confirmation and does not assign courier', async ({ page }) => {
   await authenticate(page);
   let shipmentCalls = 0;
-  await page.route('**/api/v1/admin/orders/order-1/ship', async (route) => {
+  await page.route('**/api/v1/admin/orders/order-1/push-shipmozo', async (route) => {
     shipmentCalls++;
-    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'shipment-1', awb: 'AWB123', courier_name: 'Test Courier' }) });
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ status: 'awaiting_courier', provider_order_id: 'SMZ-1' }) });
   });
   await page.goto('/orders/order-1');
-  await page.getByRole('button', { name: 'Create Shipment' }).click();
+  await page.getByRole('button', { name: 'Push to Shipmozo' }).click();
   expect(shipmentCalls).toBe(0);
-  await page.getByRole('button', { name: 'Confirm Ship' }).click();
+  await page.getByRole('button', { name: 'Push Only' }).click();
   await expect.poll(() => shipmentCalls).toBe(1);
 });
 
