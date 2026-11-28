@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, ShoppingBag, Package, TrendingUp, Settings, LogOut, Store, Tag, Ticket, FolderTree, RotateCcw, MessageSquare, Star, Activity } from 'lucide-react';
+import { LayoutDashboard, Users, ShoppingBag, Package, TrendingUp, Settings, LogOut, Store, Tag, Ticket, FolderTree, RotateCcw, MessageSquare, Star, Activity, ToggleLeft } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { path: '/inventory', icon: Package, label: 'Inventory' },
   { path: '/revenue', icon: TrendingUp, label: 'Revenue' },
   { path: '/operations', icon: Activity, label: 'Operations' },
+  { path: '/feature-flags', icon: ToggleLeft, label: 'Feature Flags' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 

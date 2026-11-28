@@ -33,6 +33,9 @@ async function mockAdminApi(page: Page) {
     if (path === '/admin/contact-messages' && method === 'GET') return json({ contact_messages: [{ id: 'message-1', name: 'A Customer', email: 'customer@example.com', phone: '', subject: 'Product question', message: 'Does this include a cable?', status: 'open', created_at: '2026-11-14T10:00:00Z' }] });
     if (path === '/admin/contact-messages/message-1' && method === 'PUT') return json({ message: 'Contact message updated', status: 'resolved' });
     if (path === '/admin/users' && method === 'GET') return json({ users: [{ id: 'user-1', name: 'A Customer', email: 'customer@example.com', phone: '9999999999', created_at: '2026-11-14T10:00:00Z' }] });
+    if (path === '/admin/feature-flags' && method === 'GET') return json({ flags: { website_maintenance: false } });
+    if (path === '/admin/feature-flags/website_maintenance' && method === 'PUT') return json({ key: 'website_maintenance', enabled: request.postDataJSON().enabled });
+    if (path === '/admin/feature-flags' && method === 'POST') return json({ key: request.postDataJSON().key, enabled: false }, 201);
     if (path === '/admin/coupons' && method === 'GET') return json({ coupons: [] });
     if (path === '/admin/ops/status' && method === 'GET') return json({ service: 'ecom-core-service', environment: 'production', configuration: [{ name: 'payment', required: true, ready: true, detail: 'Payment configuration is ready' }], active_anomalies: { critical: 1, high: 0 }, monitor_interval_minutes: 5 });
     if (path === '/admin/ops/anomalies' && method === 'GET') return json({ anomalies: [{ key: 'OPS_REFUND_PENDING_STALE:order-1', event_code: 'OPS_REFUND_PENDING_STALE', severity: 'critical', resource_type: 'order', resource_id: 'order-1', summary: 'Refund remains pending beyond the reconciliation window', recommendation: 'Compare the refund with the payment provider before retrying', age_seconds: 7200 }], total: 1, page: 1, limit: 50 });

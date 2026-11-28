@@ -17,6 +17,7 @@ const ReturnsPage = lazy(() => import('./pages/ReturnsPage'));
 const ReviewsPage = lazy(() => import('./pages/ReviewsPage'));
 const MessagesPage = lazy(() => import('./pages/MessagesPage'));
 const OperationsPage = lazy(() => import('./pages/OperationsPage'));
+const FeatureFlagsPage = lazy(() => import('./pages/FeatureFlagsPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 
 function PageLoading() {
@@ -68,6 +69,7 @@ export default function App() {
           <Route path="/inventory" element={<ProtectedPage><InventoryPage /></ProtectedPage>} />
           <Route path="/revenue" element={<ProtectedPage><RevenuePage /></ProtectedPage>} />
           <Route path="/coupons" element={<ProtectedPage><CouponsPage /></ProtectedPage>} />
+          <Route path="/feature-flags" element={<ProtectedPage><FeatureFlagsPage /></ProtectedPage>} />
           <Route path="/operations" element={<ProtectedPage><OperationsPage /></ProtectedPage>} />
           <Route path="/settings" element={<ProtectedPage><div className="text-gray-500">Settings page — coming soon</div></ProtectedPage>} />
           <Route path="*" element={<Navigate to="/" replace />} />
